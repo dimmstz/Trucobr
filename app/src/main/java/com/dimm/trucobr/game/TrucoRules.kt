@@ -1,8 +1,8 @@
 package com.dimm.trucobr.game
 
 /**
- * Supported table profiles. Regional scoring and tie-break rules remain separate
- * from card strength and must be specified before full-hand resolution is added.
+ * Regional profile. The Mineiro defaults below are a configurable house baseline;
+ * this project intentionally keeps vira-based manilhas in both profiles.
  */
 enum class TrucoRuleset {
     PAULISTA,
@@ -42,20 +42,39 @@ data class TrucoRules(
         CardSuit.ESPADAS,
         CardSuit.COPAS,
         CardSuit.PAUS
-    )
+    ),
+    val scoreLadder: List<Int> = listOf(1, 3, 6, 9, 12),
+    val targetScore: Int = 12,
+    val specialScore: Int = 11,
+    val specialHandValue: Int = 3,
+    val specialForfeitValue: Int = 1
 ) {
     init {
-        require(manilhaSuitOrder.toSet().size == CardSuit.entries.size) {
+        require(manilhaSuitOrder.size == CardSuit.entries.size &&
+            manilhaSuitOrder.toSet().size == CardSuit.entries.size) {
             "A ordem das manilhas deve conter os quatro naipes, sem repetição."
         }
-        require(manilhaSuitOrder.size == CardSuit.entries.size) {
-            "A ordem das manilhas deve conter os quatro naipes."
-        }
+        require(scoreLadder.isNotEmpty() && scoreLadder.first() > 0)
+        require(scoreLadder.zipWithNext().all { (a, b) -> b > a })
+        require(scoreLadder.last() == targetScore)
+        require(specialScore in 1 until targetScore)
+        require(specialHandValue > 0 && specialForfeitValue > 0)
     }
 
     companion object {
         fun paulista(): TrucoRules = TrucoRules(TrucoRuleset.PAULISTA)
-        fun mineiro(): TrucoRules = TrucoRules(TrucoRuleset.MINEIRO)
+
+        /**
+         * Mineiro scoring baseline (2-4-6-10-12 and mão de dez).
+         * Vira-based manilhas are retained as explicitly required by this app.
+         */
+        fun mineiro(): TrucoRules = TrucoRules(
+            ruleset = TrucoRuleset.MINEIRO,
+            scoreLadder = listOf(2, 4, 6, 10, 12),
+            specialScore = 10,
+            specialHandValue = 4,
+            specialForfeitValue = 2
+        )
     }
 }
 
