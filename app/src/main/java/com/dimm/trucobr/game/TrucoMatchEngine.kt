@@ -167,11 +167,11 @@ data class TrucoBetState(
 
     fun raise(teamId: String, rules: TrucoRules): TrucoBetState {
         require(teamId == "A" || teamId == "B")
-        require(pendingValue == null) { "Há um pedido aguardando resposta." }
         require(lastRaisedByTeamId != teamId) {
             "A equipe que aumentou por último deve aguardar a resposta adversária."
         }
-        val next = rules.scoreLadder.firstOrNull { it > acceptedValue }
+        val currentOffer = pendingValue ?: acceptedValue
+        val next = rules.scoreLadder.firstOrNull { it > currentOffer }
             ?: throw IllegalStateException("A aposta já está no limite.")
         return copy(pendingValue = next, lastRaisedByTeamId = teamId)
     }
