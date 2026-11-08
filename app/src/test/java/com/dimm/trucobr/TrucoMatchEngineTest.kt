@@ -118,6 +118,10 @@ class TrucoMatchEngineTest {
         assertFalse(accepted.pendingValue != null)
         val next = accepted.raise("B", rules)
         assertEquals(6, next.pendingValue)
+
+        val directCounter = first.raise("B", rules)
+        assertEquals(6, directCounter.pendingValue)
+        assertEquals(1, directCounter.fold())
     }
 
     @Test(expected = IllegalArgumentException::class)
