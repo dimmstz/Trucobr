@@ -1,7 +1,6 @@
 package com.dimm.trucobr
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,13 +35,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dimm.trucobr.game.Card as PlayingCard
-import com.dimm.trucobr.game.CardRank
 import com.dimm.trucobr.game.CardSuit
 import com.dimm.trucobr.game.HandResult
 import com.dimm.trucobr.game.MatchScore
 import com.dimm.trucobr.game.PlayedCard
 import com.dimm.trucobr.game.TrickOutcome
-import com.dimm.trucobr.game.TrucoCardSystem
 import com.dimm.trucobr.game.TrucoDeal
 import com.dimm.trucobr.game.TrucoDealer
 import com.dimm.trucobr.game.TrucoMatchEngine
@@ -125,10 +122,15 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
     }
 
     val handResult = TrucoMatchEngine.resolveHand(updatedTricks)
+    val awardedValue = if (TrucoScoring.isSpecialHand(state.score, state.rules)) {
+        TrucoScoring.specialHandValue(state.rules)
+    } else {
+        1
+    }
     val nextScore = TrucoScoring.awardHand(
         score = state.score,
         result = handResult,
-        handValue = 1,
+        handValue = awardedValue,
         rules = state.rules
     )
     val winner = when (handResult) {
