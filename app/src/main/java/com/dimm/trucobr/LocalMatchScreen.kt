@@ -347,7 +347,14 @@ fun LocalMatchScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    current.hands["human"].orEmpty().forEach { card ->
+                    current.hands["human"].orEmpty().forEachIndexed { index, card ->
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = true,
+                            enter = if (animationsEnabled) {
+                                fadeIn(tween(240, delayMillis = index * 85)) +
+                                    slideInVertically(tween(240, delayMillis = index * 85)) { it / 2 }
+                            } else EnterTransition.None
+                        ) {
                         Box(modifier = Modifier.padding(horizontal = 4.dp)) {
                             Button(
                                 onClick = {
@@ -368,6 +375,7 @@ fun LocalMatchScreen(
                                 CardFace(card)
                             }
                         }
+                        }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -377,7 +385,7 @@ fun LocalMatchScreen(
                         colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
                     ) { Text("NOVA PARTIDA") }
                 }
-                Text("Bot de demonstração: jogadas aleatórias, sem conexão online.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, textAlign = TextAlign.Center)
+                Text("Adversário: $difficulty · partida offline", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(20.dp))
         }
