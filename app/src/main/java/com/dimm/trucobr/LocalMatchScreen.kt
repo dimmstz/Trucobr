@@ -1,5 +1,17 @@
 package com.dimm.trucobr
 
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +23,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -62,7 +77,9 @@ private data class LocalGameState(
     val score: MatchScore = MatchScore(),
     val message: String = "Sua vez! Escolha uma carta.",
     val lastTrick: String = "",
-    val finished: Boolean = false
+    val finished: Boolean = false,
+    val lastHumanCard: PlayingCard? = null,
+    val lastBotCard: PlayingCard? = null
 )
 
 private fun newLocalGame(rules: TrucoRules): LocalGameState {
@@ -74,7 +91,23 @@ private fun newLocalGame(rules: TrucoRules): LocalGameState {
     )
 }
 
-private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameState {
+private fun chooseBotCard(hand: List<PlayingCard>, humanCard: PlayingCard, state: LocalGameState, difficulty: String): PlayingCard {
+    if (difficulty == "Fácil") return hand.random()
+    val comparison = Comparator<PlayingCard> { first, second ->
+        com.dimm.trucobr.game.TrucoCardSystem.compare(first, second, state.vira, state.rules)
+    }
+    val winningCards = hand.filter {
+        com.dimm.trucobr.game.TrucoCardSystem.compare(it, humanCard, state.vira, state.rules) > 0
+    }
+    if (difficulty == "Difícil") {
+        return winningCards.minWithOrNull(comparison) ?: hand.minWithOrNull(comparison)!!
+    }
+    return if (winningCards.isNotEmpty() && Random.nextFloat() < 0.72f) {
+        winningCards.minWithOrNull(comparison)!!
+    } else hand.random()
+}
+
+private fun playLocalCard(state: LocalGameState, card: PlayingCard, difficulty: String): LocalGameState {
     if (state.finished) return state
     val humanHand = state.hands["human"].orEmpty()
     if (card !in humanHand) return state
@@ -82,7 +115,7 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
     val remainingHuman = humanHand - card
     val botHand = state.hands["bot"].orEmpty()
     if (botHand.isEmpty()) return state
-    val botCard = botHand[Random.nextInt(botHand.size)]
+    val botCard = chooseBotCard(botHand, card, state, difficulty)
     val remainingBot = botHand - botCard
 
     val outcome = TrucoMatchEngine.resolveTrick(
@@ -117,7 +150,9 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
             hands = hands,
             tricks = updatedTricks,
             message = "$trickLabel. Jogue a próxima carta.",
-            lastTrick = "$card  ×  $botCard"
+            lastTrick = "$card  ×  $botCard",
+            lastHumanCard = card,
+            lastBotCard = botCard
         )
     }
 
@@ -145,7 +180,9 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
             score = nextScore,
             message = if (matchWinner == "A") "PARTIDA VENCIDA! Você ganhou." else "Partida encerrada. O bot venceu.",
             lastTrick = "$card  ×  $botCard",
-            finished = true
+            finished = true,
+            lastHumanCard = card,
+            lastBotCard = botCard
         )
     }
 
@@ -156,12 +193,25 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
         tricks = emptyList(),
         score = nextScore,
         message = "$winner Próxima mão: sua vez.",
-        lastTrick = "$card  ×  $botCard"
+        lastTrick = "$card  ×  $botCard",
+        lastHumanCard = card,
+        lastBotCard = botCard
     )
 }
 
 @Composable
-fun LocalMatchScreen(onBack: () -> Unit = {}) {
+fun LocalMatchScreen(
+    onBack: () -> Unit = {},
+    difficulty: String = "Normal",
+    animationsEnabled: Boolean = true,
+    soundEnabled: Boolean = true,
+    vibrationEnabled: Boolean = true
+) {
+    val view = LocalView.current
+    val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 55) }
+    DisposableEffect(toneGenerator) {
+        onDispose { toneGenerator.release() }
+    }
     var selectedRuleset by remember { mutableStateOf(TrucoRuleset.PAULISTA) }
     var game by remember { mutableStateOf<LocalGameState?>(null) }
     val rules = if (selectedRuleset == TrucoRuleset.PAULISTA) {
@@ -254,6 +304,27 @@ fun LocalMatchScreen(onBack: () -> Unit = {}) {
                         PlayingCardView(card = current.vira, hidden = false)
                         Spacer(Modifier.height(12.dp))
                         Text(current.message, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                        AnimatedContent(
+                            targetState = current.lastTrick,
+                            transitionSpec = {
+                                if (animationsEnabled) {
+                                    (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 3 }) togetherWith
+                                        (fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 4 })
+                                } else EnterTransition.None togetherWith ExitTransition.None
+                            },
+                            label = "cards-on-table"
+                        ) { played ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.animateContentSize()) {
+                                if (played.isNotBlank()) {
+                                    Text("CARTAS JOGADAS", color = GoldAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        PlayingCardView(card = current.lastHumanCard, hidden = false)
+                                        Text("×", color = GoldAccent, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                                        PlayingCardView(card = current.lastBotCard, hidden = false)
+                                    }
+                                }
+                            }
+                        }
                         if (current.lastTrick.isNotBlank()) {
                             Text("Última vaza: ${current.lastTrick}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                         }
@@ -270,7 +341,11 @@ fun LocalMatchScreen(onBack: () -> Unit = {}) {
                     current.hands["human"].orEmpty().forEach { card ->
                         Box(modifier = Modifier.padding(horizontal = 4.dp)) {
                             Button(
-                                onClick = { game = playLocalCard(current, card) },
+                                onClick = {
+                                    if (vibrationEnabled) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    if (soundEnabled) toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 75)
+                                    game = playLocalCard(current, card, difficulty)
+                                },
                                 enabled = !current.finished,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CardIvory,
@@ -279,7 +354,7 @@ fun LocalMatchScreen(onBack: () -> Unit = {}) {
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                                modifier = Modifier.width(88.dp).height(124.dp)
+                                modifier = Modifier.width(88.dp).height(124.dp).animateContentSize()
                             ) {
                                 CardFace(card)
                             }
