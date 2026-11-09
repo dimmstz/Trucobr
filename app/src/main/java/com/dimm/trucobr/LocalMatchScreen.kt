@@ -1,5 +1,17 @@
 package com.dimm.trucobr
 
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.view.HapticFeedbackConstants
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -11,6 +23,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +62,7 @@ import com.dimm.trucobr.game.TrucoMatchEngine
 import com.dimm.trucobr.game.TrucoRules
 import com.dimm.trucobr.game.TrucoRuleset
 import com.dimm.trucobr.game.TrucoScoring
+import com.dimm.trucobr.game.TrucoBetState
 import kotlin.random.Random
 
 private val TableGreen = Color(0xFF14523B)
@@ -62,7 +79,10 @@ private data class LocalGameState(
     val score: MatchScore = MatchScore(),
     val message: String = "Sua vez! Escolha uma carta.",
     val lastTrick: String = "",
-    val finished: Boolean = false
+    val finished: Boolean = false,
+    val lastHumanCard: PlayingCard? = null,
+    val lastBotCard: PlayingCard? = null,
+    val betState: TrucoBetState = TrucoBetState.initial(rules)
 )
 
 private fun newLocalGame(rules: TrucoRules): LocalGameState {
@@ -70,11 +90,117 @@ private fun newLocalGame(rules: TrucoRules): LocalGameState {
     return LocalGameState(
         rules = rules,
         hands = deal.hands,
-        vira = deal.vira
+        vira = deal.vira,
+        betState = TrucoBetState.initial(rules)
     )
 }
 
-private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameState {
+private fun chooseBotCard(hand: List<PlayingCard>, humanCard: PlayingCard, state: LocalGameState, difficulty: String): PlayingCard {
+    if (difficulty == "Fácil") return hand.random()
+    val comparison = Comparator<PlayingCard> { first, second ->
+        com.dimm.trucobr.game.TrucoCardSystem.compare(first, second, state.vira, state.rules)
+    }
+    val winningCards = hand.filter {
+        com.dimm.trucobr.game.TrucoCardSystem.compare(it, humanCard, state.vira, state.rules) > 0
+    }
+    if (difficulty == "Difícil") {
+        return winningCards.minWithOrNull(comparison) ?: hand.minWithOrNull(comparison)!!
+    }
+    return if (winningCards.isNotEmpty() && Random.nextFloat() < 0.72f) {
+        winningCards.minWithOrNull(comparison)!!
+    } else hand.random()
+}
+
+private fun awardBetForfeit(state: LocalGameState, winningTeam: String, points: Int): LocalGameState {
+    val nextScore = state.score.add(winningTeam, points)
+    val matchWinner = nextScore.winner(state.rules.targetScore)
+    if (matchWinner != null) {
+        return state.copy(
+            score = nextScore,
+            message = if (matchWinner == "A") "PARTIDA VENCIDA! O adversário correu." else "Partida encerrada. Você correu e o bot venceu.",
+            finished = true
+        )
+    }
+    val deal = TrucoDealer.deal(listOf("human", "bot"))
+    return state.copy(
+        hands = deal.hands,
+        vira = deal.vira,
+        tricks = emptyList(),
+        score = nextScore,
+        betState = TrucoBetState.initial(state.rules),
+        lastHumanCard = null,
+        lastBotCard = null,
+        lastTrick = "",
+        message = if (winningTeam == "A") "O bot correu. Você marcou $points ponto(s)." else "Você correu. O bot marcou $points ponto(s)."
+    )
+}
+
+private fun requestTruco(state: LocalGameState, difficulty: String): LocalGameState {
+    if (state.finished || state.betState.pendingValue != null) return state
+    val raised = try {
+        state.betState.raise("A", state.rules)
+    } catch (_: IllegalStateException) {
+        return state.copy(message = "Não é possível aumentar a aposta agora.")
+    }
+    val botHand = state.hands["bot"].orEmpty()
+    val strongCards = botHand.count {
+        com.dimm.trucobr.game.TrucoCardSystem.isManilha(it, state.vira) ||
+            com.dimm.trucobr.game.TrucoCardSystem.compare(
+                it,
+                com.dimm.trucobr.game.Card(com.dimm.trucobr.game.CardRank.TWO, CardSuit.OUROS),
+                state.vira,
+                state.rules
+            ) >= 0
+    }
+    val foldChance = when (difficulty) {
+        "Fácil" -> 0.42f
+        "Difícil" -> 0.08f
+        else -> 0.22f
+    }
+    if (strongCards == 0 && Random.nextFloat() < foldChance) {
+        return awardBetForfeit(state, "A", raised.fold()).copy(
+            message = "O bot correu do pedido de ${raised.pendingValue}!"
+        )
+    }
+
+    var accepted = raised.accept()
+    val canRaiseAgain = state.rules.scoreLadder.any { it > accepted.acceptedValue }
+    val counterChance = when (difficulty) {
+        "Fácil" -> 0.04f
+        "Difícil" -> 0.38f
+        else -> 0.16f
+    }
+    if (canRaiseAgain && strongCards >= 2 && Random.nextFloat() < counterChance) {
+        accepted = accepted.raise("B", state.rules)
+        return state.copy(
+            betState = accepted,
+            message = "O bot aceitou e aumentou para ${accepted.pendingValue}! Você aceita ou corre?"
+        )
+    }
+    return state.copy(
+        betState = accepted,
+        message = "O bot aceitou o pedido. A mão vale ${accepted.acceptedValue} ponto(s)."
+    )
+}
+
+private fun acceptTruco(state: LocalGameState): LocalGameState {
+    if (state.betState.pendingValue == null || state.betState.lastRaisedByTeamId != "B") return state
+    val accepted = state.betState.accept()
+    return state.copy(
+        betState = accepted,
+        message = "Você aceitou! Esta mão vale ${accepted.acceptedValue} ponto(s)."
+    )
+}
+
+private fun foldTruco(state: LocalGameState): LocalGameState {
+    val requester = state.betState.lastRaisedByTeamId ?: return state
+    if (state.betState.pendingValue == null) return state
+    val points = state.betState.fold()
+    val winner = if (requester == "A") "A" else "B"
+    return awardBetForfeit(state, winner, points)
+}
+
+private fun playLocalCard(state: LocalGameState, card: PlayingCard, difficulty: String): LocalGameState {
     if (state.finished) return state
     val humanHand = state.hands["human"].orEmpty()
     if (card !in humanHand) return state
@@ -82,7 +208,7 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
     val remainingHuman = humanHand - card
     val botHand = state.hands["bot"].orEmpty()
     if (botHand.isEmpty()) return state
-    val botCard = botHand[Random.nextInt(botHand.size)]
+    val botCard = chooseBotCard(botHand, card, state, difficulty)
     val remainingBot = botHand - botCard
 
     val outcome = TrucoMatchEngine.resolveTrick(
@@ -117,7 +243,9 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
             hands = hands,
             tricks = updatedTricks,
             message = "$trickLabel. Jogue a próxima carta.",
-            lastTrick = "$card  ×  $botCard"
+            lastTrick = "$card  ×  $botCard",
+            lastHumanCard = card,
+            lastBotCard = botCard
         )
     }
 
@@ -130,7 +258,7 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
     val nextScore = TrucoScoring.awardHand(
         score = state.score,
         result = handResult,
-        handValue = awardedValue,
+        handValue = if (awardedValue > 1) awardedValue else state.betState.acceptedValue,
         rules = state.rules
     )
     val winner = when (handResult) {
@@ -145,7 +273,9 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
             score = nextScore,
             message = if (matchWinner == "A") "PARTIDA VENCIDA! Você ganhou." else "Partida encerrada. O bot venceu.",
             lastTrick = "$card  ×  $botCard",
-            finished = true
+            finished = true,
+            lastHumanCard = card,
+            lastBotCard = botCard
         )
     }
 
@@ -153,15 +283,32 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
     return state.copy(
         hands = nextDeal.hands,
         vira = nextDeal.vira,
+        betState = TrucoBetState.initial(state.rules),
         tricks = emptyList(),
+        
         score = nextScore,
         message = "$winner Próxima mão: sua vez.",
-        lastTrick = "$card  ×  $botCard"
+        lastTrick = "$card  ×  $botCard",
+        lastHumanCard = card,
+        lastBotCard = botCard
     )
 }
 
 @Composable
-fun LocalMatchScreen() {
+fun LocalMatchScreen(
+    onBack: () -> Unit = {},
+    difficulty: String = "Normal",
+    animationsEnabled: Boolean = true,
+    soundEnabled: Boolean = true,
+    vibrationEnabled: Boolean = true,
+    onMatchFinished: (Boolean) -> Unit = {}
+) {
+    var resultRecorded by remember { mutableStateOf(false) }
+    val view = LocalView.current
+    val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 55) }
+    DisposableEffect(toneGenerator) {
+        onDispose { toneGenerator.release() }
+    }
     var selectedRuleset by remember { mutableStateOf(TrucoRuleset.PAULISTA) }
     var game by remember { mutableStateOf<LocalGameState?>(null) }
     val rules = if (selectedRuleset == TrucoRuleset.PAULISTA) {
@@ -186,6 +333,10 @@ fun LocalMatchScreen() {
             Spacer(Modifier.height(18.dp))
 
             if (game == null) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                    OutlinedButton(onClick = onBack) { Text("VOLTAR AO INÍCIO", color = Color.White) }
+                }
+                Spacer(Modifier.height(12.dp))
                 Text("Escolha a modalidade", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -205,13 +356,19 @@ fun LocalMatchScreen() {
                 )
                 Spacer(Modifier.height(20.dp))
                 Button(
-                    onClick = { game = newLocalGame(rules) },
+                    onClick = { resultRecorded = false; game = newLocalGame(rules) },
                     colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
                 ) { Text("COMEÇAR PARTIDA", fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.height(26.dp))
                 Text("Mesa de demonstração contra bot aleatório", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
             } else {
                 val current = game!!
+                LaunchedEffect(current.finished, current.score.teamA, current.score.teamB) {
+                    if (current.finished && !resultRecorded) {
+                        resultRecorded = true
+                        onMatchFinished(current.score.teamA > current.score.teamB)
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -221,7 +378,7 @@ fun LocalMatchScreen() {
                         Text(if (current.rules.ruleset == TrucoRuleset.PAULISTA) "PAULISTA" else "MINEIRO", color = GoldAccent, fontWeight = FontWeight.Bold)
                         Text("MELHOR DE 3 VAZAS", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
                     }
-                    OutlinedButton(onClick = { game = null }) { Text("SAIR", color = Color.White) }
+                    OutlinedButton(onClick = onBack) { Text("INÍCIO", color = Color.White) }
                 }
                 Spacer(Modifier.height(12.dp))
                 ScoreBoard(current.score.teamA, current.score.teamB)
@@ -250,10 +407,57 @@ fun LocalMatchScreen() {
                         PlayingCardView(card = current.vira, hidden = false)
                         Spacer(Modifier.height(12.dp))
                         Text(current.message, color = Color.White, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
+                        AnimatedContent(
+                            targetState = current.lastTrick,
+                            transitionSpec = {
+                                if (animationsEnabled) {
+                                    (fadeIn(tween(180)) + slideInVertically(tween(180)) { it / 3 }) togetherWith
+                                        (fadeOut(tween(120)) + slideOutVertically(tween(120)) { -it / 4 })
+                                } else EnterTransition.None togetherWith ExitTransition.None
+                            },
+                            label = "cards-on-table"
+                        ) { played ->
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.animateContentSize()) {
+                                if (played.isNotBlank()) {
+                                    Text("CARTAS JOGADAS", color = GoldAccent, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                                    Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        PlayingCardView(card = current.lastHumanCard, hidden = false)
+                                        Text("×", color = GoldAccent, fontSize = 20.sp, fontWeight = FontWeight.Black)
+                                        PlayingCardView(card = current.lastBotCard, hidden = false)
+                                    }
+                                }
+                            }
+                        }
                         if (current.lastTrick.isNotBlank()) {
                             Text("Última vaza: ${current.lastTrick}", color = Color.White.copy(alpha = 0.7f), fontSize = 12.sp)
                         }
-                        Text("Vazas: ${current.tricks.size}/3", color = GoldAccent, fontSize = 12.sp)
+                        Text("Vazas: ${current.tricks.size}/3 · Mão vale ${current.betState.acceptedValue}", color = GoldAccent, fontSize = 12.sp)
+                        if (current.betState.pendingValue != null && current.betState.lastRaisedByTeamId == "B") {
+                            Spacer(Modifier.height(10.dp))
+                            Text("O bot pediu ${current.betState.pendingValue}!", color = GoldAccent, fontWeight = FontWeight.Bold)
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Button(
+                                    onClick = { game = acceptTruco(current) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
+                                ) { Text("ACEITAR") }
+                                OutlinedButton(onClick = { game = foldTruco(current) }) {
+                                    Text("CORRER", color = Color.White)
+                                }
+                            }
+                        } else if (current.betState.pendingValue == null &&
+                            current.betState.lastRaisedByTeamId != "A" &&
+                            current.betState.acceptedValue < current.rules.scoreLadder.last() &&
+                            !current.finished
+                        ) {
+                            Spacer(Modifier.height(10.dp))
+                            Button(
+                                onClick = { game = requestTruco(current, difficulty) },
+                                colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
+                            ) {
+                                val nextValue = current.rules.scoreLadder.firstOrNull { it > current.betState.acceptedValue }
+                                Text(if (nextValue == null) "PEDIR TRUCO" else "PEDIR ${nextValue}")
+                            }
+                        }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
@@ -263,11 +467,22 @@ fun LocalMatchScreen() {
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    current.hands["human"].orEmpty().forEach { card ->
+                    current.hands["human"].orEmpty().forEachIndexed { index, card ->
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = true,
+                            enter = if (animationsEnabled) {
+                                fadeIn(tween(240, delayMillis = index * 85)) +
+                                    slideInVertically(tween(240, delayMillis = index * 85)) { it / 2 }
+                            } else EnterTransition.None
+                        ) {
                         Box(modifier = Modifier.padding(horizontal = 4.dp)) {
                             Button(
-                                onClick = { game = playLocalCard(current, card) },
-                                enabled = !current.finished,
+                                onClick = {
+                                    if (vibrationEnabled) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                                    if (soundEnabled) toneGenerator.startTone(ToneGenerator.TONE_PROP_ACK, 75)
+                                    game = playLocalCard(current, card, difficulty)
+                                },
+                                enabled = !current.finished && current.betState.pendingValue == null,
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = CardIvory,
                                     contentColor = Ink,
@@ -275,21 +490,22 @@ fun LocalMatchScreen() {
                                 ),
                                 shape = RoundedCornerShape(12.dp),
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
-                                modifier = Modifier.width(88.dp).height(124.dp)
+                                modifier = Modifier.width(88.dp).height(124.dp).animateContentSize()
                             ) {
                                 CardFace(card)
                             }
+                        }
                         }
                     }
                 }
                 Spacer(Modifier.height(16.dp))
                 if (current.finished) {
                     Button(
-                        onClick = { game = newLocalGame(current.rules) },
+                        onClick = { resultRecorded = false; game = newLocalGame(current.rules) },
                         colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
                     ) { Text("NOVA PARTIDA") }
                 }
-                Text("Bot de demonstração: jogadas aleatórias, sem conexão online.", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, textAlign = TextAlign.Center)
+                Text("Adversário: $difficulty · partida offline", color = Color.White.copy(alpha = 0.5f), fontSize = 11.sp, textAlign = TextAlign.Center)
             }
             Spacer(Modifier.height(20.dp))
         }

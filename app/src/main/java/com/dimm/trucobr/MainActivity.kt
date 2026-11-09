@@ -6,6 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 private val DeepGreen = Color(0xFF0B2119)
@@ -18,7 +22,43 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TrucoBrTheme {
-                LocalMatchScreen()
+                var destination by remember { mutableStateOf("home") }
+                var stats by remember { mutableStateOf(StatsStore.load(this)) }
+                var preferences by remember { mutableStateOf(PreferencesStore.load(this)) }
+                when (destination) {
+                    "match" -> LocalMatchScreen(
+                        difficulty = preferences.botDifficulty,
+                        animationsEnabled = preferences.animationsEnabled,
+                        soundEnabled = preferences.soundEnabled,
+                        vibrationEnabled = preferences.vibrationEnabled,
+                        onMatchFinished = { won ->
+                            StatsStore.record(this, won)
+                            stats = StatsStore.load(this)
+                        },
+                        onBack = { destination = "home" }
+                    )
+                    "stats" -> StatsScreen(
+                        stats = stats,
+                        onReset = {
+                            StatsStore.reset(this)
+                            stats = StatsStore.load(this)
+                        },
+                        onBack = { destination = "home" }
+                    )
+                    "settings" -> SettingsScreen(
+                        preferences = preferences,
+                        onPreferencesChanged = {
+                            preferences = it
+                            PreferencesStore.save(this, it)
+                        },
+                        onBack = { destination = "home" }
+                    )
+                    else -> HomeScreen(
+                        onStartGame = { destination = "match" },
+                        onSettings = { destination = "settings" },
+                        onStats = { destination = "stats" }
+                    )
+                }
             }
         }
     }
