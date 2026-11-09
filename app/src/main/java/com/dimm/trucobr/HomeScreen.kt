@@ -52,7 +52,7 @@ private val HomeGold = Color(0xFFD2B16D)
 private val HomeCream = Color(0xFFF5F0E4)
 
 @Composable
-fun HomeScreen(onStartGame: () -> Unit, onSettings: () -> Unit = {}) {
+fun HomeScreen(onStartGame: () -> Unit, onSettings: () -> Unit = {}, onStats: () -> Unit = {}) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val motion = rememberInfiniteTransition(label = "hero-cards")
@@ -130,6 +130,13 @@ fun HomeScreen(onStartGame: () -> Unit, onSettings: () -> Unit = {}) {
             Spacer(Modifier.height(10.dp))
             FeatureTile("⌁", "Jogue sem internet", "Treine offline contra o adversário virtual.")
             Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = onStats,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f), contentColor = HomeCream)
+            ) { Text("🏆  MEU DESEMPENHO", fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(10.dp))
             Button(
                 onClick = onSettings,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
