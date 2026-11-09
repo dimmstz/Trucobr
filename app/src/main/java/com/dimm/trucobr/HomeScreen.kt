@@ -52,7 +52,7 @@ private val HomeGold = Color(0xFFD2B16D)
 private val HomeCream = Color(0xFFF5F0E4)
 
 @Composable
-fun HomeScreen(onStartGame: () -> Unit) {
+fun HomeScreen(onStartGame: () -> Unit, onSettings: () -> Unit = {}) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
     val motion = rememberInfiniteTransition(label = "hero-cards")
@@ -129,6 +129,13 @@ fun HomeScreen(onStartGame: () -> Unit) {
             FeatureTile("✦", "Uma mesa feita para o truco", "Cartas, placar e mesa com identidade brasileira.")
             Spacer(Modifier.height(10.dp))
             FeatureTile("⌁", "Jogue sem internet", "Treine offline contra o adversário virtual.")
+            Spacer(Modifier.height(18.dp))
+            Button(
+                onClick = onSettings,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f), contentColor = HomeCream)
+            ) { Text("⚙  CONFIGURAÇÕES", fontWeight = FontWeight.Bold) }
             Spacer(Modifier.height(24.dp))
             Text("TRUCO BR  •  FEITO PARA QUEM GOSTA DO JOGO", color = HomeCream.copy(alpha = .42f), fontSize = 9.sp, letterSpacing = 1.sp, textAlign = TextAlign.Center)
         }
