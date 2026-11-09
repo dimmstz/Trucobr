@@ -23,6 +23,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             TrucoBrTheme {
                 var destination by remember { mutableStateOf("home") }
+                var stats by remember { mutableStateOf(StatsStore.load(this)) }
                 var preferences by remember { mutableStateOf(PreferencesStore.load(this)) }
                 when (destination) {
                     "match" -> LocalMatchScreen(
@@ -30,6 +31,18 @@ class MainActivity : ComponentActivity() {
                         animationsEnabled = preferences.animationsEnabled,
                         soundEnabled = preferences.soundEnabled,
                         vibrationEnabled = preferences.vibrationEnabled,
+                        onMatchFinished = { won ->
+                            StatsStore.record(this, won)
+                            stats = StatsStore.load(this)
+                        },
+                        onBack = { destination = "home" }
+                    )
+                    "stats" -> StatsScreen(
+                        stats = stats,
+                        onReset = {
+                            StatsStore.reset(this)
+                            stats = StatsStore.load(this)
+                        },
                         onBack = { destination = "home" }
                     )
                     "settings" -> SettingsScreen(
@@ -42,7 +55,8 @@ class MainActivity : ComponentActivity() {
                     )
                     else -> HomeScreen(
                         onStartGame = { destination = "match" },
-                        onSettings = { destination = "settings" }
+                        onSettings = { destination = "settings" },
+                        onStats = { destination = "stats" }
                     )
                 }
             }
