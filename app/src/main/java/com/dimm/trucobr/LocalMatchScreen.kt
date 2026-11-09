@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -205,8 +206,10 @@ fun LocalMatchScreen(
     difficulty: String = "Normal",
     animationsEnabled: Boolean = true,
     soundEnabled: Boolean = true,
-    vibrationEnabled: Boolean = true
+    vibrationEnabled: Boolean = true,
+    onMatchFinished: (Boolean) -> Unit = {}
 ) {
+    var resultRecorded by remember { mutableStateOf(false) }
     val view = LocalView.current
     val toneGenerator = remember { ToneGenerator(AudioManager.STREAM_MUSIC, 55) }
     DisposableEffect(toneGenerator) {
@@ -259,13 +262,19 @@ fun LocalMatchScreen(
                 )
                 Spacer(Modifier.height(20.dp))
                 Button(
-                    onClick = { game = newLocalGame(rules) },
+                    onClick = { resultRecorded = false; game = newLocalGame(rules) },
                     colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
                 ) { Text("COMEÇAR PARTIDA", fontWeight = FontWeight.Bold) }
                 Spacer(Modifier.height(26.dp))
                 Text("Mesa de demonstração contra bot aleatório", color = Color.White.copy(alpha = 0.55f), fontSize = 12.sp)
             } else {
                 val current = game!!
+                LaunchedEffect(current.finished, current.score.teamA, current.score.teamB) {
+                    if (current.finished && !resultRecorded) {
+                        resultRecorded = true
+                        onMatchFinished(current.score.teamA > current.score.teamB)
+                    }
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -364,7 +373,7 @@ fun LocalMatchScreen(
                 Spacer(Modifier.height(16.dp))
                 if (current.finished) {
                     Button(
-                        onClick = { game = newLocalGame(current.rules) },
+                        onClick = { resultRecorded = false; game = newLocalGame(current.rules) },
                         colors = ButtonDefaults.buttonColors(containerColor = GoldAccent, contentColor = DarkGreen)
                     ) { Text("NOVA PARTIDA") }
                 }
