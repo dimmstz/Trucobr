@@ -6,6 +6,10 @@ import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 
 private val DeepGreen = Color(0xFF0B2119)
@@ -18,7 +22,12 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TrucoBrTheme {
-                LocalMatchScreen()
+                var showMatch by remember { mutableStateOf(false) }
+                if (showMatch) {
+                    LocalMatchScreen(onBack = { showMatch = false })
+                } else {
+                    HomeScreen(onStartGame = { showMatch = true })
+                }
             }
         }
     }
