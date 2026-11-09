@@ -161,7 +161,7 @@ private fun playLocalCard(state: LocalGameState, card: PlayingCard): LocalGameSt
 }
 
 @Composable
-fun LocalMatchScreen() {
+fun LocalMatchScreen(onBack: () -> Unit = {}) {
     var selectedRuleset by remember { mutableStateOf(TrucoRuleset.PAULISTA) }
     var game by remember { mutableStateOf<LocalGameState?>(null) }
     val rules = if (selectedRuleset == TrucoRuleset.PAULISTA) {
@@ -186,6 +186,10 @@ fun LocalMatchScreen() {
             Spacer(Modifier.height(18.dp))
 
             if (game == null) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Start) {
+                    OutlinedButton(onClick = onBack) { Text("VOLTAR AO INÍCIO", color = Color.White) }
+                }
+                Spacer(Modifier.height(12.dp))
                 Text("Escolha a modalidade", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -221,7 +225,7 @@ fun LocalMatchScreen() {
                         Text(if (current.rules.ruleset == TrucoRuleset.PAULISTA) "PAULISTA" else "MINEIRO", color = GoldAccent, fontWeight = FontWeight.Bold)
                         Text("MELHOR DE 3 VAZAS", color = Color.White.copy(alpha = 0.65f), fontSize = 10.sp)
                     }
-                    OutlinedButton(onClick = { game = null }) { Text("SAIR", color = Color.White) }
+                    OutlinedButton(onClick = onBack) { Text("INÍCIO", color = Color.White) }
                 }
                 Spacer(Modifier.height(12.dp))
                 ScoreBoard(current.score.teamA, current.score.teamB)
