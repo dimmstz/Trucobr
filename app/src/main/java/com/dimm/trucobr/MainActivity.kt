@@ -22,11 +22,28 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             TrucoBrTheme {
-                var showMatch by remember { mutableStateOf(false) }
-                if (showMatch) {
-                    LocalMatchScreen(onBack = { showMatch = false })
-                } else {
-                    HomeScreen(onStartGame = { showMatch = true })
+                var destination by remember { mutableStateOf("home") }
+                var preferences by remember { mutableStateOf(PreferencesStore.load(this)) }
+                when (destination) {
+                    "match" -> LocalMatchScreen(
+                        difficulty = preferences.botDifficulty,
+                        animationsEnabled = preferences.animationsEnabled,
+                        soundEnabled = preferences.soundEnabled,
+                        vibrationEnabled = preferences.vibrationEnabled,
+                        onBack = { destination = "home" }
+                    )
+                    "settings" -> SettingsScreen(
+                        preferences = preferences,
+                        onPreferencesChanged = {
+                            preferences = it
+                            PreferencesStore.save(this, it)
+                        },
+                        onBack = { destination = "home" }
+                    )
+                    else -> HomeScreen(
+                        onStartGame = { destination = "match" },
+                        onSettings = { destination = "settings" }
+                    )
                 }
             }
         }
